@@ -1,5 +1,3 @@
-import * as os from 'os';
-import * as fs from 'fs';
 import {
   AssetType,
   getMultipleAccounts,
@@ -31,10 +29,11 @@ import * as Env from 'dotenv';
 import envExpand from 'dotenv-expand';
 import { Client as RpcWebSocketClient } from 'rpc-websockets';
 import { AsyncBlockingQueue } from './AsyncBlockingQueue';
+import { bs58 } from '@project-serum/anchor/dist/cjs/utils/bytes';
 
 envExpand(Env.config());
 
-const interval = parseInt(process.env.INTERVAL || '3500');
+const interval = parseInt(process.env.INTERVAL || '2500');
 const refreshAccountsInterval = parseInt(
   process.env.INTERVAL_ACCOUNTS || '600000',
 );
@@ -64,7 +63,7 @@ const groupIds =
 
 // The Triton team recommends using the commitment level `confirmed` in order
 // to avoid BlockhashNotFound errors. Adding a parameter.
-const commitmentLevel = process.env.COMMITMENT_LEVEL || 'processed';
+const commitmentLevel = process.env.COMMITMENT_LEVEL || 'confirmed';
 
 // Target values to keep in spot, ordered the same as in mango client's ids.json
 // Example:
@@ -85,17 +84,7 @@ if (minEquity > 0) {
 const mangoProgramId = groupIds.mangoProgramId;
 const mangoGroupKey = groupIds.publicKey;
 
-const payer = Keypair.fromSecretKey(
-  Uint8Array.from(
-    JSON.parse(
-      process.env.PRIVATE_KEY ||
-        fs.readFileSync(
-          process.env.KEYPAIR || os.homedir() + '/.config/solana/id.json',
-          'utf-8',
-        ),
-    ),
-  ),
-);
+const payer = Keypair.fromSecretKey(bs58.decode(process.env.PRIV_KEY ?? ''))
 
 console.log(`Commitment level: ${commitmentLevel}`);
 
@@ -115,7 +104,7 @@ let liqorMangoAccount: MangoAccount;
 let spotMarkets: Market[];
 let perpMarkets: PerpMarket[];
 let rootBanks: (RootBank | undefined)[];
-let mangoAccounts: MangoAccount[] = [];
+const mangoAccounts: MangoAccount[] = [];
 
 async function main() {
   console.log(`Starting liquidator for ${groupName}...`);
@@ -370,12 +359,12 @@ async function newAccountOnLiquidatableFeed(account) {
 
 // never returns
 async function liquidatableFromLiquidatableFeed() {
-  let candidates = new AsyncBlockingQueue<string>();
-  let candidatesSet = new Set<string>();
+  const candidates = new AsyncBlockingQueue<string>();
+  const candidatesSet = new Set<string>();
   const ws = new RpcWebSocketClient(liquidatableFeedWebsocketAddress, {
     max_reconnects: Infinity,
   });
-  ws.on('open', (x) => console.log('opened liquidatable feed'));
+  ws.on('open', () => console.log('opened liquidatable feed'));
   ws.on('error', (status) => console.log('error on liquidatable feed', status));
   ws.on('close', (err) => console.log('closed liquidatable feed', err));
   ws.on('candidate', (params) => {
@@ -386,6 +375,7 @@ async function liquidatableFromLiquidatableFeed() {
     }
   });
 
+  // eslint-disable-next-line no-constant-condition
   while (true) {
     const account = await candidates.dequeue();
     candidatesSet.delete(account);
